@@ -69,6 +69,13 @@ class FraudDetectionSystem:
             'ml_enhanced': self.use_ml_model and self.ml_model.model_ready
         }
         
+        # Save the transaction result to the database
+        try:
+            self.data_processor.db.save_transaction_results(transaction_data, result)
+        except Exception as e:
+            import streamlit as st
+            st.warning(f"Failed to save transaction to database: {e}")
+        
         return result
     
     def get_fraud_metrics(self):

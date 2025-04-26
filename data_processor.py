@@ -1,7 +1,8 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-import random
+import streamlit as st
+from database import DatabaseManager
 
 class DataProcessor:
     """
@@ -13,24 +14,44 @@ class DataProcessor:
         self.users_df = None
         self.merchants_df = None
         
+        # Initialize database manager
+        self.db = DatabaseManager()
+        
+        # Try to connect to database and create tables if needed
+        if self.db.connect():
+            self.db.create_tables()
+            # Insert sample data for testing if database is empty
+            self.db.insert_sample_data()
+        
     def load_data(self, transactions_data=None, users_data=None, merchants_data=None):
         """
         Load data for analysis
-        If data is provided, use it. Otherwise, display messaging that data needs to be loaded.
+        If data is provided, use it. Otherwise, try to load from database.
         """
         if transactions_data is not None:
             self.transactions_df = transactions_data
+        else:
+            # Try to load from database
+            self.transactions_df = self.db.load_transactions()
+            if len(self.transactions_df) == 0:
+                st.warning("No transaction data found in database. Using sample data.")
         
         if users_data is not None:
             self.users_df = users_data
+        else:
+            # Try to load from database
+            self.users_df = self.db.load_users()
             
         if merchants_data is not None:
             self.merchants_df = merchants_data
+        else:
+            # Try to load from database
+            self.merchants_df = self.db.load_merchants()
     
     def prepare_transaction_for_analysis(self, transaction_data):
         """
         Prepare a single transaction data dict for fraud rule analysis
-        This would typically pull additional context from other data sources
+        Pull additional context from database or memory as needed
         """
         # Add/calculate any additional fields needed for rule evaluation
         processed_data = transaction_data.copy()
@@ -40,7 +61,47 @@ class DataProcessor:
             processed_data['timestamp'] = datetime.fromisoformat(processed_data['timestamp'])
         elif 'timestamp' not in processed_data:
             processed_data['timestamp'] = datetime.now()
+            
+        # Get user information and transaction stats
+        user_id = processed_data.get('user_id')
+        if user_id:
+            # Get user stats
+            user_stats = self.get_user_transaction_stats(user_id)
+            if 'user_avg_amount' not in processed_data:
+                processed_data['user_avg_amount'] = user_stats['avg_amount']
+            
+            # Get recent transactions for smurfing detection (Rule 5)
+            if 'user_recent_transactions' not in processed_data:
+                processed_data['user_recent_transactions'] = self.db.get_recent_transactions_for_user(
+                    user_id, 
+                    minutes=10
+                )
+                
+            # Get user sessions for device change detection (Rule 4)
+            if 'user_sessions' not in processed_data:
+                processed_data['user_sessions'] = self.db.get_recent_user_sessions(
+                    user_id,
+                    minutes=10
+                )
+                
+            # Get login attempts for failed login detection (Rule 6)
+            if 'login_attempts' not in processed_data:
+                processed_data['login_attempts'] = self.db.get_recent_login_attempts(
+                    user_id,
+                    minutes=5
+                )
         
+        # Get merchant information
+        merchant_id = processed_data.get('merchant_id')
+        if merchant_id and 'merchant_age_months' not in processed_data:
+            merchant_info = self.get_merchant_info(merchant_id)
+            processed_data['merchant_age_months'] = merchant_info['merchant_age_months']
+            
+        # Get flagged recipients for Rule 10
+        if 'recipient_id' in processed_data and 'flagged_recipients' not in processed_data:
+            flagged_recipients = self.db.get_flagged_recipients(days=30)
+            processed_data['flagged_recipients'] = flagged_recipients
+            
         return processed_data
     
     def get_user_transaction_stats(self, user_id):

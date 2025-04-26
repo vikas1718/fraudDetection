@@ -304,7 +304,7 @@ Monitor transactions, analyze risk patterns, and identify potential fraud in rea
 """)
 
 # Main dashboard tabs
-tab1, tab2, tab3 = st.tabs(["Dashboard Overview", "Transaction Analysis", "Rule Testing"])
+tab1, tab2, tab3, tab4 = st.tabs(["Dashboard Overview", "Transaction Analysis", "Rule Testing", "Database Management"])
 
 # Tab 1: Dashboard Overview
 with tab1:
@@ -668,6 +668,293 @@ st.sidebar.markdown("""
 - **Medium Risk (30-70)**: Additional verification recommended
 - **High Risk (70-100)**: Transaction may be fraudulent
 """)
+
+# Tab 4: Database Management
+with tab4:
+    st.header("Database Management")
+    st.markdown("""
+    Connect to your MySQL database (XAMPP) and manage transactions and settings.
+    """)
+    
+    # MySQL connection settings
+    st.subheader("Database Connection")
+    
+    # Create columns for connection settings
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        host = st.text_input("Database Host", value="localhost")
+        user = st.text_input("Database User", value="root")
+        password = st.text_input("Database Password", value="", type="password")
+    
+    with col2:
+        database = st.text_input("Database Name", value="fraud_detection")
+        st.write("Default port: 3306")
+        test_connection = st.button("Test Connection")
+    
+    if test_connection:
+        # Update connection settings
+        fraud_system.data_processor.db.host = host
+        fraud_system.data_processor.db.user = user
+        fraud_system.data_processor.db.password = password
+        fraud_system.data_processor.db.database = database
+        
+        # Try to connect
+        if fraud_system.data_processor.db.connect():
+            st.success(f"Successfully connected to MySQL database '{database}' on {host}")
+            # Create tables if they don't exist
+            if fraud_system.data_processor.db.create_tables():
+                st.success("Database tables created/verified successfully")
+            else:
+                st.error("Failed to create database tables")
+        else:
+            st.error(f"Failed to connect to MySQL database '{database}' on {host}")
+    
+    # Database operations
+    st.subheader("Database Operations")
+    
+    # Create tabs for different operations
+    db_tab1, db_tab2, db_tab3 = st.tabs(["View Data", "Add Test Data", "Import/Export"])
+    
+    # Tab 1: View Data
+    with db_tab1:
+        st.write("View data from the database:")
+        table_options = ["transactions", "users", "merchants", "flagged_rules", "recommended_actions"]
+        selected_table = st.selectbox("Select table to view:", table_options)
+        
+        if st.button("Load Data"):
+            try:
+                # Connect to database
+                if fraud_system.data_processor.db.connect():
+                    # Load data from selected table
+                    query = f"SELECT * FROM {selected_table} LIMIT 100"
+                    df = pd.read_sql(query, fraud_system.data_processor.db.connection)
+                    
+                    if len(df) > 0:
+                        st.dataframe(df)
+                    else:
+                        st.info(f"No data found in table '{selected_table}'")
+                else:
+                    st.error("Failed to connect to database")
+            except Exception as e:
+                st.error(f"Error loading data: {e}")
+    
+    # Tab 2: Add Test Data
+    with db_tab2:
+        st.write("Generate and add test transactions to the database:")
+        
+        # Form for test data generation
+        with st.form("generate_test_data_form"):
+            num_transactions = st.number_input("Number of test transactions to generate:", min_value=1, max_value=100, value=10)
+            include_fraud = st.checkbox("Include fraudulent transactions", value=True)
+            fraud_percentage = st.slider("Percentage of fraudulent transactions:", 0, 100, 30) if include_fraud else 0
+            
+            st.subheader("Transaction Parameters")
+            min_amount = st.number_input("Minimum amount:", min_value=1, value=50)
+            max_amount = st.number_input("Maximum amount:", min_value=min_amount, value=5000)
+            
+            # Add button to generate and insert test data
+            generate_button = st.form_submit_button("Generate and Insert Test Data")
+        
+        if generate_button:
+            # Function to generate a single random transaction
+            import random
+            
+            def generate_random_transaction(idx, fraudulent=False):
+                # Generate a random transaction with potential fraud indicators based on the 10 rules
+                now = datetime.now()
+                
+                # Basic transaction data
+                txn = {
+                    "transaction_id": f"GEN{int(now.timestamp())}_{idx}",
+                    "user_id": f"U{random.randint(1, 20):03d}",
+                    "amount": random.uniform(min_amount, max_amount),
+                    "timestamp": now - timedelta(minutes=random.randint(0, 1440)),  # Random time within last 24 hours
+                    "merchant_id": f"M{random.randint(1, 10):03d}",
+                    "device_id": f"D{random.randint(1, 30):03d}",
+                    "ip_address": f"192.168.{random.randint(1, 255)}.{random.randint(1, 255)}",
+                    "two_fa_completed": True,
+                    "user_avg_amount": random.uniform(500, 2000),
+                    "merchant_age_months": random.randint(1, 48)
+                }
+                
+                # Default locations - same place
+                txn["billing_location"] = {"lat": 40.7128, "lon": -74.0060}  # NYC
+                txn["device_location"] = {"lat": 40.7128, "lon": -74.0060}  # NYC
+                
+                # If this should be a fraudulent transaction, add fraud indicators
+                if fraudulent:
+                    # Choose random fraud indicators
+                    fraud_type = random.choice([
+                        "unusual_amount", "night_hour", "new_merchant", "device_change",
+                        "smurfing", "failed_login", "location_mismatch", "incomplete_2fa",
+                        "behavior_change", "flagged_recipient"
+                    ])
+                    
+                    if fraud_type == "unusual_amount":
+                        # Rule 1: Unusual amount (>3x average)
+                        txn["amount"] = txn["user_avg_amount"] * random.uniform(3.5, 10.0)
+                    
+                    elif fraud_type == "night_hour":
+                        # Rule 2: Night hour transaction (12 AM - 5 AM)
+                        night_time = now.replace(hour=random.randint(0, 4), minute=random.randint(0, 59))
+                        txn["timestamp"] = night_time
+                    
+                    elif fraud_type == "new_merchant":
+                        # Rule 3: New merchant (< 6 months)
+                        txn["merchant_age_months"] = random.randint(0, 5)
+                    
+                    elif fraud_type == "device_change":
+                        # Rule 4: Device change
+                        txn["user_sessions"] = [{
+                            "device_id": f"DIFF_DEV_{random.randint(1, 99)}",
+                            "ip_address": f"10.0.{random.randint(1, 255)}.{random.randint(1, 255)}",
+                            "timestamp": now - timedelta(minutes=random.randint(1, 9))
+                        }]
+                    
+                    elif fraud_type == "smurfing":
+                        # Rule 5: Smurfing (multiple small transactions)
+                        txn["amount"] = random.uniform(50, 499)
+                        txn["user_recent_transactions"] = [
+                            {"amount": random.uniform(50, 499), "timestamp": now - timedelta(minutes=i)}
+                            for i in range(1, random.randint(5, 10))
+                        ]
+                    
+                    elif fraud_type == "failed_login":
+                        # Rule 6: Failed login attempts
+                        txn["login_attempts"] = [
+                            {"success": False, "timestamp": now - timedelta(minutes=i)}
+                            for i in range(1, random.randint(3, 6))
+                        ]
+                    
+                    elif fraud_type == "location_mismatch":
+                        # Rule 7: Location mismatch (> 500 km)
+                        txn["billing_location"] = {"lat": 40.7128, "lon": -74.0060}  # NYC
+                        txn["device_location"] = {"lat": 34.0522, "lon": -118.2437}  # LA
+                    
+                    elif fraud_type == "incomplete_2fa":
+                        # Rule 8: Incomplete 2FA
+                        txn["two_fa_completed"] = False
+                    
+                    elif fraud_type == "behavior_change":
+                        # Rule 9: Behavior change
+                        txn["current_pattern"] = 1.8
+                        txn["historical_pattern"] = 1.0
+                    
+                    elif fraud_type == "flagged_recipient":
+                        # Rule 10: Flagged recipient
+                        txn["recipient_id"] = "FLAGGED_RECIPIENT"
+                        txn["flagged_recipients"] = {
+                            "FLAGGED_RECIPIENT": [
+                                now - timedelta(days=random.randint(1, 29))
+                                for _ in range(random.randint(2, 5))
+                            ]
+                        }
+                
+                return txn
+            
+            # Generate transactions
+            with st.spinner(f"Generating and analyzing {num_transactions} transactions..."):
+                num_fraud = int(num_transactions * fraud_percentage / 100) if include_fraud else 0
+                num_normal = num_transactions - num_fraud
+                
+                # Generate normal transactions
+                normal_txns = [generate_random_transaction(i, False) for i in range(num_normal)]
+                
+                # Generate fraudulent transactions
+                fraud_txns = [generate_random_transaction(i + num_normal, True) for i in range(num_fraud)]
+                
+                # Combine and shuffle
+                all_txns = normal_txns + fraud_txns
+                random.shuffle(all_txns)
+                
+                # Process each transaction
+                results = []
+                for i, txn in enumerate(all_txns):
+                    result = fraud_system.analyze_transaction(txn)
+                    results.append(result)
+                    
+                    # Update progress
+                    progress_pct = (i + 1) / len(all_txns)
+                    st.progress(progress_pct)
+            
+            # Show results summary
+            st.success(f"Generated and processed {num_transactions} transactions")
+            
+            # Count fraud detection results
+            high_risk = sum(1 for r in results if r['risk_score'] >= 70)
+            medium_risk = sum(1 for r in results if 30 <= r['risk_score'] < 70)
+            low_risk = sum(1 for r in results if r['risk_score'] < 30)
+            
+            # Display statistics
+            st.subheader("Generation Results")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("High Risk", high_risk, f"{high_risk/num_transactions*100:.1f}%")
+            col2.metric("Medium Risk", medium_risk, f"{medium_risk/num_transactions*100:.1f}%")
+            col3.metric("Low Risk", low_risk, f"{low_risk/num_transactions*100:.1f}%")
+            
+            # Update session state with new data
+            fraud_system.data_processor.load_data()  # Reload data from database
+            
+            # Convert new results to DataFrame for display
+            new_txns_df = pd.DataFrame([
+                {
+                    'transaction_id': r['transaction_data'].get('transaction_id', ''),
+                    'user_id': r['transaction_data'].get('user_id', ''),
+                    'amount': r['transaction_data'].get('amount', 0),
+                    'timestamp': r['transaction_data'].get('timestamp', datetime.now()),
+                    'merchant_id': r['transaction_data'].get('merchant_id', ''),
+                    'risk_score': r['risk_score'],
+                    'flagged_rules': r['flags'],
+                    'recommended_actions': r['actions']
+                }
+                for r in results
+            ])
+            
+            # Display summary of new transactions
+            st.subheader("Generated Transactions")
+            display_df = new_txns_df[['transaction_id', 'user_id', 'amount', 'timestamp', 'risk_score']].copy()
+            display_df['timestamp'] = display_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
+            display_df.columns = ['Transaction ID', 'User ID', 'Amount', 'Timestamp', 'Risk Score']
+            st.dataframe(display_df, use_container_width=True)
+    
+    # Tab 3: Import/Export
+    with db_tab3:
+        st.write("Import or export data to/from the database:")
+        
+        # Export data
+        st.subheader("Export Data")
+        export_table = st.selectbox("Select table to export:", table_options)
+        
+        if st.button("Export to CSV"):
+            try:
+                # Connect to database
+                if fraud_system.data_processor.db.connect():
+                    # Load data from selected table
+                    query = f"SELECT * FROM {export_table}"
+                    df = pd.read_sql(query, fraud_system.data_processor.db.connection)
+                    
+                    if len(df) > 0:
+                        # Convert to CSV
+                        csv = df.to_csv(index=False)
+                        
+                        # Offer download link
+                        st.download_button(
+                            label="Download CSV",
+                            data=csv,
+                            file_name=f"{export_table}.csv",
+                            mime="text/csv"
+                        )
+                    else:
+                        st.info(f"No data found in table '{export_table}'")
+                else:
+                    st.error("Failed to connect to database")
+            except Exception as e:
+                st.error(f"Error exporting data: {e}")
+        
+        # Import data
+        st.subheader("Import Data")
+        st.write("Feature coming soon...")
 
 # Footer
 st.sidebar.markdown("---")
