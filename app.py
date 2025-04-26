@@ -611,6 +611,39 @@ with tab3:
 st.sidebar.title("ScamPay Fraud Detection")
 st.sidebar.image("https://freesvg.org/img/1545709034.png", width=100)  # Shield icon
 
+# ML Model Controls in sidebar
+st.sidebar.header("Machine Learning Model")
+if st.sidebar.checkbox("Enable ML Model Enhancement", value=fraud_system.use_ml_model):
+    fraud_system.enable_ml_model(True)
+    
+    # Show ML model status
+    if fraud_system.ml_model.model_ready:
+        st.sidebar.success("ML model is trained and active")
+        
+        # Option to view feature importance
+        if st.sidebar.button("View Feature Importance"):
+            feature_importance = fraud_system.get_ml_feature_importance()
+            if feature_importance is not None:
+                st.sidebar.dataframe(feature_importance)
+            else:
+                st.sidebar.warning("Feature importance not available")
+    else:
+        st.sidebar.warning("ML model is not yet trained")
+        
+        # Train model button
+        if st.sidebar.button("Train ML Model"):
+            with st.sidebar:
+                with st.spinner("Training ML model..."):
+                    success = fraud_system.train_ml_model()
+                    
+                if success:
+                    st.success("ML model trained successfully!")
+                else:
+                    st.error("Failed to train ML model")
+else:
+    fraud_system.enable_ml_model(False)
+    st.sidebar.info("Using rules-based detection only")
+
 # System information in sidebar
 st.sidebar.header("System Information")
 st.sidebar.markdown("""
