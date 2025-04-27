@@ -8,3 +8,6 @@ seaborn
 joblib
 requests
 pydantic
+streamlit
+mysql-connector-python
+
