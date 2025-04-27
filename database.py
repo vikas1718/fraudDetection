@@ -38,8 +38,7 @@ class DatabaseManager:
                 return True
                 
         except Error as e:
-            st.error(f"Error connecting to MySQL database: {e}")
-            # If database doesn't exist, try to create it
+           
             if "Unknown database" in str(e):
                 return self.create_database()
                 
